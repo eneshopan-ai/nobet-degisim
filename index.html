@@ -34,6 +34,7 @@
     <symbol id="i-users" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
     <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></symbol>
     <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></symbol>
   </svg>
 
@@ -64,7 +65,7 @@
         <div class="hero">
           <div class="hero-badge" aria-hidden="true"><svg class="ico"><use href="#i-swap" xlink:href="#i-swap"/></svg></div>
           <h1 id="home-title">Nöbetini mi değiştirdin?</h1>
-          <p>Kiminle, hangi tarihli nöbeti değiştirdiğini birkaç saniyede bölüme duyur.</p>
+          <p>Kiminle, hangi tarihli nöbetleri değiştirdiğini birkaç saniyede bölüme duyur.</p>
           <button type="button" class="cta" id="cta">
             <span class="cta-plus" aria-hidden="true"><svg class="ico"><use href="#i-plus" xlink:href="#i-plus"/></svg></span>
             <span>Nöbet Değişikliği Bildir</span>
@@ -159,13 +160,23 @@
         </div>
 
         <div class="field">
-          <label for="f-date">Değiştirilen nöbetin tarihi</label>
+          <label for="f-date">Benim nöbetimin tarihi</label>
           <div class="input-wrap">
             <svg class="ico input-ico" aria-hidden="true"><use href="#i-calendar" xlink:href="#i-calendar"/></svg>
             <input class="input" id="f-date" name="date" type="date" enterkeyhint="done"
                    aria-describedby="e-date" required>
           </div>
           <p class="err" id="e-date" role="alert"></p>
+        </div>
+
+        <div class="field">
+          <label for="f-date2">Karşı tarafın nöbetinin tarihi</label>
+          <div class="input-wrap">
+            <svg class="ico input-ico" aria-hidden="true"><use href="#i-calendar" xlink:href="#i-calendar"/></svg>
+            <input class="input" id="f-date2" name="date2" type="date" enterkeyhint="done"
+                   aria-describedby="e-date2" required>
+          </div>
+          <p class="err" id="e-date2" role="alert"></p>
         </div>
 
         <div class="preview" aria-live="polite">

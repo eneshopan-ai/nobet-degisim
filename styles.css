@@ -283,7 +283,15 @@ main:focus { outline: none; }
   border: 2px solid var(--surface);
 }
 .avatars .ico { margin: 0 4px; font-size: 0.9rem; color: var(--muted); }
-.swap-meta time { margin-left: auto; padding-left: 10px; font-size: 0.76rem; font-weight: 600; color: var(--muted); text-align: right; }
+.swap-meta time { margin-left: auto; padding-left: 10px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.76rem; font-weight: 600; color: var(--muted); text-align: right; }
+
+.swap-del {
+  flex: none; width: 44px; height: 44px; margin: -8px -12px -8px 0; border: 0; border-radius: 12px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; color: var(--muted); -webkit-appearance: none; appearance: none;
+}
+.swap-del:hover, .swap-del:focus-visible { color: var(--err); background: var(--surface-2); }
+.swap-del:disabled { opacity: 0.5; }
 
 .more { margin-top: 4px; }
 
@@ -461,6 +469,9 @@ input[type="date"].input::-webkit-calendar-picker-indicator { opacity: 0.7; }
   .stat strong { font-size: 1.3rem; }
   .swap { padding: 12px; }
   .swap-date { flex-basis: 52px; width: 52px; margin-right: 10px; }
+  .avatars .ico { margin: 0 1px; }
+  .swap-meta time { padding-left: 4px; }
+  .swap-del { margin-right: -14px; }
   .tab { font-size: 0.64rem; }
 }
 

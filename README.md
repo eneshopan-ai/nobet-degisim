@@ -2,8 +2,8 @@
 
 Bölümde nöbet değiştirenlerin değişikliklerini bildirdiği, telefon öncelikli web uygulaması. Derleme adımı ve bağımlılığı yoktur: düz HTML + CSS + JavaScript.
 
-- **Ana Sayfa** — "Nöbet Değişikliği Bildir" düğmesi. Basınca **Ben / Nöbet değiştirdiğim kişi / Tarih** formu açılır ve şu mesaj oluşur:
-  *"Ben Ayşe Yılmaz, Mehmet Demir ile 14 Ekim 2026 Çarşamba tarihli olan nöbetimi değiştirdim."*
+- **Ana Sayfa** — "Nöbet Değişikliği Bildir" düğmesi. Basınca **Ben / Nöbet değiştirdiğim kişi / Benim nöbetimin tarihi / Karşı tarafın nöbetinin tarihi** formu açılır ve şu mesaj oluşur:
+  *"Ben Ayşe Yılmaz, 14 Ekim 2026 Çarşamba tarihli nöbetimle, 20 Ekim 2026 Salı tarihli Mehmet Demir adlı kişinin nöbetini değiştirdim."*
 - **Nöbet Değişiklikleri** sekmesi — tüm bildirimler **en yeniden eskiye** sıralanır; günlere göre gruplanır.
 - Renkli, koyu mod destekli; 280 px (katlanmış telefon) ile tablet arası boyutlarda denendi; ana ekrana eklenebilir (PWA), internet kesikken açılır.
 
@@ -27,11 +27,12 @@ Kuralların sağladıkları:
 | --- | --- |
 | Linke giren **herkes** bildirimleri okuyabilir | evet |
 | **Herkes** yeni bildirim ekleyebilir (giriş yok) | evet |
-| Eklenen kaydı **değiştirmek / silmek** | hayır — kayıtlar kalıcıdır |
-| Alanlar: ad 2–40 karakter, tarih `YYYY-AA-GG`, fazladan alan yok | zorunlu |
+| Eklenen kaydı **silmek** | evet — linke giren herkes silebilir (onay sorulur) |
+| Eklenen kaydı **değiştirmek** | hayır |
+| Alanlar: ad 2–40 karakter, iki tarih `YYYY-AA-GG` (`tarih`, `karsiTarih`), fazladan alan yok | zorunlu |
 | Kayıt saati | sunucu yazar (`ts == now`), istemci sahteleyemez |
 
-Hatalı bir kaydı yalnızca siz, Firebase konsolundaki **Data** sekmesinden silebilirsiniz.
+Kayıtları listedeki çöp kutusu düğmesiyle linke giren herkes silebilir; giriş olmadığı için biri başkasının bildirimini de silebilir. Gerekirse Firebase konsolundaki **Data** sekmesinden de silebilirsiniz.
 
 ### 2) GitHub Pages ile yayın
 

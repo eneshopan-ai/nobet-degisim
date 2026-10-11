@@ -3,7 +3,7 @@
  *
  * - Uygulamayı yerel bir statik sunucudan açar.
  * - Firebase Realtime Database REST sözleşmesini taklit eden küçük bir sahte
- *   sunucu başlatır (POST ile ekleme, orderBy/limitToLast ile okuma, ".sv" saat).
+ *   sunucu başlatır (POST ile ekleme, DELETE ile silme, orderBy/limitToLast ile okuma, ".sv" saat).
  *   GERÇEK Firebase'e bağlanmaz; kuralları (database.rules.json) sınamaz.
  * - İki bağımsız tarayıcı bağlamı = iki ayrı telefon: A ekler, B görür.
  *
@@ -44,21 +44,32 @@ function startStatic() {
 /* ---------------------------------------------------- sahte Firebase RTDB */
 function startMockDb() {
   const store = new Map();          // pushId -> kayıt
-  const ctl = { failPost: false, posts: 0 };
+  const ctl = { failPost: false, failDelete: false, posts: 0, deletes: 0 };
   let counter = 0;
   const pushId = () => '-N' + Date.now().toString(36).padStart(9, '0') + String(counter++).padStart(4, '0');
   const cors = {
-    'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'content-type', 'Cache-Control': 'no-cache'
   };
+  // database.rules.json ile aynı: dört alan zorunlu, karsiTarih isteğe bağlı (eski kayıtlar), başka alan yok.
+  const ISO = /^\d{4}-\d{2}-\d{2}$/;
   const valid = (v) => v && typeof v === 'object'
-    && Object.keys(v).sort().join() === 'karsi,olusturan,tarih,ts'
+    && ['karsi', 'olusturan', 'tarih', 'ts'].every((k) => k in v)
+    && Object.keys(v).every((k) => ['karsi', 'karsiTarih', 'olusturan', 'tarih', 'ts'].includes(k))
     && [v.olusturan, v.karsi].every((s) => typeof s === 'string' && s.length >= 2 && s.length <= 40)
-    && /^\d{4}-\d{2}-\d{2}$/.test(v.tarih) && typeof v.ts === 'number';
+    && ISO.test(v.tarih) && (v.karsiTarih === undefined || ISO.test(v.karsiTarih)) && typeof v.ts === 'number';
 
   const server = http.createServer((req, res) => {
     const u = new URL(req.url, 'http://x');
     if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
+    const del = /^\/nobetler\/([^/]+)\.json$/.exec(u.pathname);
+    if (del && req.method === 'DELETE') {
+      ctl.deletes++;
+      if (ctl.failDelete) { res.writeHead(500, cors); return res.end('{"error":"mock failure"}'); }
+      store.delete(decodeURIComponent(del[1]));
+      res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+      return res.end('null');
+    }
     if (u.pathname !== '/nobetler.json') { res.writeHead(404, cors); return res.end('null'); }
 
     if (req.method === 'GET') {
@@ -101,7 +112,9 @@ const pad = (n) => String(n).padStart(2, '0');
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const trLong = (d) => `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()} ${DAYS[d.getDay()]}`;
 const plus = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d; };
-const sentence = (a, b, d) => `Ben ${a}, ${b} ile ${trLong(d)} tarihli olan nöbetimi değiştirdim.`;
+const sentence = (a, b, d, d2) => `Ben ${a}, ${trLong(d)} tarihli nöbetimle, ${trLong(d2)} tarihli ${b} adlı kişinin nöbetini değiştirdim.`;
+// İkinci tarih alanından önce kaydedilmiş eski kayıtlar eski cümleyle gösterilir.
+const legacySentence = (a, b, d) => `Ben ${a}, ${b} ile ${trLong(d)} tarihli olan nöbetimi değiştirdim.`;
 
 let passed = 0;
 const step = (name) => console.log(`  ✓ ${name}`) || passed++;
@@ -130,12 +143,13 @@ async function newPhone(browser, appUrl, dbUrl, opts = {}) {
   return { ctx, page, errors, appUrl };
 }
 
-async function report(page, a, b, date) {
+async function report(page, a, b, date, date2) {
   await page.locator('#cta:visible, #btn-add:visible').first().click(); // sekmeye göre hangisi görünürse
   await page.waitForSelector('#sheet-root:not([hidden])');
   await page.fill('#f-name', a);
   await page.fill('#f-other', b);
   await page.fill('#f-date', iso(date));
+  await page.fill('#f-date2', iso(date2));
   await page.click('#btn-submit');
 }
 
@@ -190,45 +204,48 @@ try {
   await A.page.fill('#f-other', 'Mehmet Demir');
   await A.page.click('#btn-submit');
   assert.match(await A.page.textContent('#e-date'), /Geçerli bir tarih/);
+  assert.match(await A.page.textContent('#e-date2'), /karşı tarafın nöbet tarihini/);
   assert.equal(db.ctl.posts, 0, 'geçersiz formda sunucuya istek gitmemeli');
-  step('Boş / aynı kişi / aralık dışı tarih doğrulaması çalışıyor, sunucuya istek gitmiyor');
+  step('Boş / aynı kişi / aralık dışı tarih / eksik ikinci tarih doğrulaması çalışıyor, sunucuya istek gitmiyor');
 
-  const d1 = plus(2);
+  const d1 = plus(2), e1 = plus(6);
   await A.page.fill('#f-date', iso(d1));
-  assert.equal(await A.page.textContent('#preview'), sentence('Ayşe Yılmaz', 'Mehmet Demir', d1));
+  await A.page.fill('#f-date2', iso(e1));
+  assert.equal(await A.page.textContent('#preview'), sentence('Ayşe Yılmaz', 'Mehmet Demir', d1, e1));
   await A.page.screenshot({ path: `${OUT}/02-form-filled.png` });
   await A.page.click('#btn-submit');
   await A.page.waitForSelector('#sheet-root', { state: 'hidden' });
   assert.match(A.page.url(), /#\/degisiklikler$/);
-  assert.deepEqual(await cardTexts(A.page), [sentence('Ayşe Yılmaz', 'Mehmet Demir', d1)]);
-  step('Önizleme istenen cümleyi üretiyor; gönderince "Nöbet Değişiklikleri" sekmesinde aynı cümle görünüyor');
+  assert.deepEqual(await cardTexts(A.page), [sentence('Ayşe Yılmaz', 'Mehmet Demir', d1, e1)]);
+  assert.equal(JSON.stringify(Object.keys([...db.store.values()][0]).sort()), JSON.stringify(['karsi', 'karsiTarih', 'olusturan', 'tarih', 'ts']));
+  step('Önizleme istenen cümleyi (iki tarihli) üretiyor; gönderince "Nöbet Değişiklikleri" sekmesinde aynı cümle görünüyor');
   await A.page.screenshot({ path: `${OUT}/03-list-one.png` });
 
   await B.page.goto(APP + '/#/degisiklikler');
   await B.page.waitForSelector('#feed .swap');
-  assert.deepEqual(await cardTexts(B.page), [sentence('Ayşe Yılmaz', 'Mehmet Demir', d1)]);
+  assert.deepEqual(await cardTexts(B.page), [sentence('Ayşe Yılmaz', 'Mehmet Demir', d1, e1)]);
   step('Hiç girmemiş başka bir telefon (B) linke tıklayınca A\'nın bildirimini görüyor');
 
-  const d2 = plus(5);
-  await report(B.page, 'Can Öztürk', 'Zeynep Kaya', d2);
+  const d2 = plus(5), e2 = plus(8);
+  await report(B.page, 'Can Öztürk', 'Zeynep Kaya', d2, e2);
   await B.page.waitForSelector('#sheet-root', { state: 'hidden' });
   await A.page.reload();
   await A.page.waitForSelector('#feed .swap');
   assert.deepEqual(await cardTexts(A.page), [
-    sentence('Can Öztürk', 'Zeynep Kaya', d2),
-    sentence('Ayşe Yılmaz', 'Mehmet Demir', d1)
+    sentence('Can Öztürk', 'Zeynep Kaya', d2, e2),
+    sentence('Ayşe Yılmaz', 'Mehmet Demir', d1, e1)
   ]);
   step('A sayfayı yenileyince B\'nin kaydı da var; sıralama en yeniden eskiye; kayıtlar kalıcı');
 
-  const d3 = plus(9);
-  await report(B.page, 'Elif Şahin', 'Burak Arslan', d3);
+  const d3 = plus(9), e3 = plus(12);
+  await report(B.page, 'Elif Şahin', 'Burak Arslan', d3, e3);
   await B.page.waitForSelector('#sheet-root', { state: 'hidden' });
   await A.page.waitForFunction(() => document.querySelectorAll('#feed .swap').length === 3, null, { timeout: 12000 });
-  assert.equal((await cardTexts(A.page))[0], sentence('Elif Şahin', 'Burak Arslan', d3));
+  assert.equal((await cardTexts(A.page))[0], sentence('Elif Şahin', 'Burak Arslan', d3, e3));
   step('A, sayfayı yenilemeden (otomatik yoklama ile) B\'nin yeni kaydını görüyor');
 
   db.ctl.failPost = true;
-  await report(A.page, 'Ayşe Yılmaz', 'Hakan Çelik', plus(1));
+  await report(A.page, 'Ayşe Yılmaz', 'Hakan Çelik', plus(1), plus(4));
   await A.page.waitForFunction(() => document.getElementById('e-form').textContent.length > 0);
   assert.equal(await A.page.isVisible('#sheet-root'), true, 'hata olunca form açık kalmalı');
   assert.equal((await cardTexts(A.page)).length, 3);
@@ -243,11 +260,41 @@ try {
   step('Sunucu hatasında form açık kalıyor, veri kaybolmuyor; düzelince tekrar gönderilebiliyor');
 
   const xss = '<img src=x onerror="window.__xss=1">';
-  await report(A.page, xss, 'Zeynep Kaya', plus(3));
+  await report(A.page, xss, 'Zeynep Kaya', plus(3), plus(5));
   await A.page.waitForSelector('#sheet-root', { state: 'hidden' });
   assert.equal(await A.page.evaluate(() => window.__xss), undefined);
   assert.ok((await cardTexts(A.page))[0].includes(xss));
   step('HTML içeren isim metin olarak gösteriliyor (XSS yok)');
+
+  // Silme: linke giren herkes (burada B) başkasının bildirimini silebilir.
+  const count = (P) => P.page.$$eval('#feed .swap', (n) => n.length);
+  await B.page.waitForFunction(() => document.querySelectorAll('#feed .swap').length === 5, null, { timeout: 12000 });
+  B.page.once('dialog', (d) => d.dismiss());
+  await B.page.locator('#feed .swap .swap-del').first().click();
+  assert.equal(await count(B), 5);
+  assert.equal(db.ctl.deletes, 0, 'onay verilmeyince sunucuya istek gitmemeli');
+  step('Silme düğmesi onay soruyor; vazgeçilince hiçbir şey silinmiyor');
+
+  B.page.once('dialog', (d) => d.accept());
+  await B.page.locator('#feed .swap', { hasText: 'Elif Şahin' }).locator('.swap-del').click();
+  await B.page.waitForFunction(() => document.querySelectorAll('#feed .swap').length === 4);
+  assert.match(await B.page.textContent('#toast'), /silindi/);
+  assert.equal(db.store.size, 4);
+  await A.page.waitForFunction(() => document.querySelectorAll('#feed .swap').length === 4, null, { timeout: 12000 });
+  assert.ok(!(await cardTexts(A.page)).some((t) => t.includes('Elif Şahin')));
+  step('Onaylayınca bildirim silinir; veritabanından kalkar, A de yenilemeden kaybolduğunu görür');
+
+  db.ctl.failDelete = true;
+  B.page.once('dialog', (d) => d.accept());
+  await B.page.locator('#feed .swap', { hasText: 'Can Öztürk' }).locator('.swap-del').click();
+  await B.page.waitForFunction(() => document.getElementById('toast').classList.contains('is-error'));
+  assert.equal(await count(B), 4);
+  assert.equal(await B.page.locator('#feed .swap', { hasText: 'Can Öztürk' }).locator('.swap-del').isEnabled(), true);
+  db.ctl.failDelete = false;
+  const expectedDel500 = B.errors.findIndex((m) => /status of 500/.test(m));
+  assert.ok(expectedDel500 >= 0, 'sahte 500 hatası konsola düşmedi');
+  B.errors.splice(expectedDel500, 1);
+  step('Silme sunucuda başarısız olursa hata gösterilir, kayıt listede kalır, düğme yeniden kullanılabilir');
 
   await A.ctx.close(); await B.ctx.close();
 
@@ -258,7 +305,7 @@ try {
   await L1.page.goto(APP + '/');
   await L1.page.waitForFunction(() => document.getElementById('sync').dataset.state === 'local');
   assert.equal(await L1.page.isVisible('#demo-note'), true);
-  await report(L1.page, 'Ayşe Yılmaz', 'Mehmet Demir', plus(1));
+  await report(L1.page, 'Ayşe Yılmaz', 'Mehmet Demir', plus(1), plus(2));
   await L1.page.waitForSelector('#sheet-root', { state: 'hidden' });
   assert.match(await L1.page.textContent('#toast'), /yalnızca bu cihaza/);
   await L1.page.reload();
@@ -279,7 +326,7 @@ try {
     ['Elif Şahin', 'Burak Arslan', 9, 3 * 3600e3], ['Selin Aydın', 'Murat Koç', 1, 26 * 3600e3],
     ['Dr. Hakan Çelik Uzunisimli', 'Prof. Dr. Gülşen Karaküçükoğlu', 14, 3 * 86400e3]
   ];
-  for (const [a, b, dd, ago] of sample) db.seed({ olusturan: a, karsi: b, tarih: iso(plus(dd)), ts: now - ago });
+  sample.forEach(([a, b, dd, ago], i) => db.seed({ olusturan: a, karsi: b, tarih: iso(plus(dd)), ...(i === 3 ? {} : { karsiTarih: iso(plus(dd + 3)) }), ts: now - ago }));
 
   const devices = [
     ['galaxy-fold-280', { width: 280, height: 653 }], ['iphone-se1-320', { width: 320, height: 568 }],
@@ -305,6 +352,9 @@ try {
     const tabH = await P.page.$$eval('.tab', (n) => n.map((x) => x.getBoundingClientRect().height));
     assert.ok(tabH.every((h) => h >= 44), `${name}: sekme yüksekliği yetersiz`);
     await P.page.screenshot({ path: `${OUT}/list-${name}.png` });
+    assert.ok((await cardTexts(P.page)).includes(legacySentence('Selin Aydın', 'Murat Koç', plus(1))), `${name}: eski (tek tarihli) kayıt eski cümleyle gösterilmeli`);
+    const delSizes = await P.page.$$eval('.swap-del', (n) => n.map((x) => { const r = x.getBoundingClientRect(); return Math.min(r.width, r.height); }));
+    assert.ok(delSizes.length > 0 && delSizes.every((s) => s >= 44), `${name}: silme düğmesi çok küçük`);
 
     await P.page.click('#btn-add');
     await P.page.waitForSelector('#sheet-root:not([hidden])');

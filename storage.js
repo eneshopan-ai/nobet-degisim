@@ -3,12 +3,14 @@
  *
  * İki sürücü, aynı arayüz:
  *   list() -> Promise<Kayıt[]>   en yeniden eskiye sıralı
- *   add({olusturan, karsi, tarih}) -> Promise<Kayıt>
+ *   add({olusturan, karsi, tarih, karsiTarih}) -> Promise<Kayıt>
+ *   remove(id) -> Promise<void>   linke giren herkes silebilir (kurallar da buna izin verir)
  *
  *   cloud : Firebase Realtime Database REST API (herkes ortak listeyi görür)
  *   local : localStorage (demo; kayıtlar yalnızca bu cihazda)
  *
- * Kayıt = { id, olusturan, karsi, tarih: 'YYYY-AA-GG', ts: epoch ms }
+ * Kayıt = { id, olusturan, karsi, tarih: 'YYYY-AA-GG', karsiTarih: 'YYYY-AA-GG' | '', ts: epoch ms }
+ *   tarih = olusturanın nöbeti, karsiTarih = karşı tarafın nöbeti ('' = eski kayıt, tek tarihliydi)
  */
 (function (global) {
   'use strict';
@@ -39,7 +41,8 @@
     var t = typeof v.tarih === 'string' ? v.tarih : '';
     var ts = Number(v.ts);
     if (!a || !b || !ISO_RE.test(t) || !isFinite(ts)) return null;
-    return { id: String(id), olusturan: a.slice(0, NAME_MAX), karsi: b.slice(0, NAME_MAX), tarih: t, ts: ts };
+    var t2 = typeof v.karsiTarih === 'string' && ISO_RE.test(v.karsiTarih) ? v.karsiTarih : '';
+    return { id: String(id), olusturan: a.slice(0, NAME_MAX), karsi: b.slice(0, NAME_MAX), tarih: t, karsiTarih: t2, ts: ts };
   }
 
   function fail(message, cause) {
@@ -87,11 +90,16 @@
           olusturan: clean(data.olusturan),
           karsi: clean(data.karsi),
           tarih: data.tarih,
+          karsiTarih: data.karsiTarih || '',
           ts: Date.now()
         };
         var arr = sortNewestFirst(read().concat([rec])).slice(0, limit);
         write(arr);
         return Promise.resolve(rec);
+      },
+      remove: function (id) {
+        write(read().filter(function (v) { return !v || String(v.id) !== String(id); }));
+        return Promise.resolve();
       }
     };
   }
@@ -158,6 +166,7 @@
           olusturan: clean(data.olusturan),
           karsi: clean(data.karsi),
           tarih: data.tarih,
+          karsiTarih: data.karsiTarih,
           ts: { '.sv': 'timestamp' }   // saati sunucu yazar, istemci değil
         };
         // Content-Type göndermiyoruz: "basit istek" kalır, CORS ön kontrolü gerekmez.
@@ -175,8 +184,19 @@
             olusturan: body.olusturan,
             karsi: body.karsi,
             tarih: body.tarih,
+            karsiTarih: body.karsiTarih,
             ts: Date.now() // bir sonraki yenilemede sunucu saati ile değişir
           };
+        });
+      },
+      remove: function (id) {
+        var url = base + '/' + node + '/' + encodeURIComponent(id) + '.json';
+        return request(url, { method: 'DELETE' }).then(function (res) {
+          if (!res.ok) {
+            throw fail(res.status === 401 || res.status === 403
+              ? 'Silme reddedildi. Veritabanı kuralları silmeye izin vermiyor.'
+              : 'Bildirim silinemedi (HTTP ' + res.status + ').');
+          }
         });
       }
     };

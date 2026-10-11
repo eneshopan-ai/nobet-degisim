@@ -134,8 +134,8 @@
   };
 
   var f = {
-    form: $('swap-form'), name: $('f-name'), other: $('f-other'), date: $('f-date'),
-    preview: $('preview'), eName: $('e-name'), eOther: $('e-other'), eDate: $('e-date'), eForm: $('e-form'),
+    form: $('swap-form'), name: $('f-name'), other: $('f-other'), date: $('f-date'), date2: $('f-date2'),
+    preview: $('preview'), eName: $('e-name'), eOther: $('e-other'), eDate: $('e-date'), eDate2: $('e-date2'), eForm: $('e-form'),
     submit: $('btn-submit'), submitText: $('btn-submit-text')
   };
 
@@ -146,16 +146,28 @@
     return el('span', 'ph', placeholder);
   }
 
-  // "Ben X, Y ile 15 Ekim 2026 Perşembe tarihli olan nöbetimi değiştirdim."
-  function fillMessage(node, a, b, d) {
+  // "Ben X, 15 Ekim 2026 Perşembe tarihli nöbetimle, 20 Ekim 2026 Salı tarihli Y adlı kişinin nöbetini değiştirdim."
+  // legacy: ikinci tarih alanından önce kaydedilmiş eski kayıtlar için eski cümle.
+  function fillMessage(node, a, b, d, d2, legacy) {
+    function text(s) { node.appendChild(document.createTextNode(s)); }
     node.textContent = '';
-    node.appendChild(document.createTextNode('Ben '));
+    text('Ben ');
     node.appendChild(part('n', a, 'adınız'));
-    node.appendChild(document.createTextNode(', '));
-    node.appendChild(part('n', b, 'değiştirdiğiniz kişi'));
-    node.appendChild(document.createTextNode(' ile '));
+    if (legacy) {
+      text(', ');
+      node.appendChild(part('n', b, 'değiştirdiğiniz kişi'));
+      text(' ile ');
+      node.appendChild(part('d', d ? longDate(d) : '', 'tarih'));
+      text(' tarihli olan nöbetimi değiştirdim.');
+      return;
+    }
+    text(', ');
     node.appendChild(part('d', d ? longDate(d) : '', 'tarih'));
-    node.appendChild(document.createTextNode(' tarihli olan nöbetimi değiştirdim.'));
+    text(' tarihli nöbetimle, ');
+    node.appendChild(part('d', d2 ? longDate(d2) : '', 'tarih'));
+    text(' tarihli ');
+    node.appendChild(part('n', b, 'değiştirdiğiniz kişi'));
+    text(' adlı kişinin nöbetini değiştirdim.');
   }
 
   /* ------------------------------------------------------------ çizim */
@@ -169,7 +181,7 @@
     return a;
   }
 
-  function buildCard(r) {
+  function buildCard(r, deletable) {
     var d = parseISO(r.tarih);
     var li = el('li', 'swap');
     li.setAttribute('data-id', r.id);
@@ -189,7 +201,7 @@
 
     var main = el('div', 'swap-main');
     var text = el('p', 'swap-text');
-    fillMessage(text, r.olusturan, r.karsi, d);
+    fillMessage(text, r.olusturan, r.karsi, d, parseISO(r.karsiTarih), !r.karsiTarih);
     main.appendChild(text);
 
     var meta = el('div', 'swap-meta');
@@ -207,9 +219,34 @@
     t.setAttribute('title', longDate(new Date(r.ts)) + ' ' + clock(r.ts));
     meta.appendChild(t);
 
+    if (deletable) {
+      var del = el('button', 'swap-del');
+      del.type = 'button';
+      del.innerHTML = icon('trash');
+      del.setAttribute('aria-label', 'Bu bildirimi sil');
+      del.setAttribute('title', 'Sil');
+      del.addEventListener('click', function () { onDelete(r, del); });
+      meta.appendChild(del);
+    }
+
     main.appendChild(meta);
     li.appendChild(main);
     return li;
+  }
+
+  // Linke giren herkes silebilir; onay istenir, silinen kayıt herkesin listesinden kalkar.
+  function onDelete(r, btn) {
+    if (!window.confirm('Bu bildirim silinsin mi?\n\nHerkesin listesinden kalkar, geri alınamaz.')) return;
+    btn.disabled = true;
+    store.remove(r.id).then(function () {
+      state.records = state.records.filter(function (x) { return x.id !== r.id; });
+      render();
+      toast('Bildirim silindi.');
+      refresh(); // sunucudaki gerçek listeyle eşitle
+    }, function (err) {
+      btn.disabled = false;
+      toast(err && err.message ? err.message : 'Bildirim silinemedi. Lütfen tekrar deneyin.', true);
+    });
   }
 
   function stateCard(kind) {
@@ -291,7 +328,7 @@
         group.appendChild(ul);
         box.appendChild(group);
       }
-      ul.appendChild(buildCard(r));
+      ul.appendChild(buildCard(r, true));
     });
     els.more.hidden = total <= state.shown;
   }
@@ -417,11 +454,11 @@
   function saveName(v) { try { window.localStorage.setItem(NAME_KEY, v); } catch (e) { /* önemsiz */ } }
 
   function renderPreview() {
-    fillMessage(f.preview, clean(f.name.value), clean(f.other.value), parseISO(f.date.value));
+    fillMessage(f.preview, clean(f.name.value), clean(f.other.value), parseISO(f.date.value), parseISO(f.date2.value));
   }
 
   function clearErrors() {
-    [[f.name, f.eName], [f.other, f.eOther], [f.date, f.eDate]].forEach(function (p) {
+    [[f.name, f.eName], [f.other, f.eOther], [f.date, f.eDate], [f.date2, f.eDate2]].forEach(function (p) {
       p[0].removeAttribute('aria-invalid');
       p[1].textContent = '';
     });
@@ -439,20 +476,22 @@
     else if (b.length < 2) errs.other = 'Ad en az 2 karakter olmalı.';
     else if (a && lower(a) === lower(b)) errs.other = 'Kendinizle nöbet değiştiremezsiniz; farklı bir kişi yazın.';
 
-    if (!f.date.value) errs.date = 'Lütfen nöbet tarihini seçin.';
-    else {
-      var today = new Date();
-      var lo = addDays(today, -365).setHours(0, 0, 0, 0);
-      var hi = addDays(today, 365).setHours(0, 0, 0, 0);
-      if (!d || d.getTime() < lo || d.getTime() > hi) errs.date = 'Geçerli bir tarih seçin (en fazla 1 yıl önce veya sonra).';
+    var today = new Date();
+    var lo = addDays(today, -365).setHours(0, 0, 0, 0);
+    var hi = addDays(today, 365).setHours(0, 0, 0, 0);
+    function checkDate(key, input, parsed, missing) {
+      if (!input.value) errs[key] = missing;
+      else if (!parsed || parsed.getTime() < lo || parsed.getTime() > hi) errs[key] = 'Geçerli bir tarih seçin (en fazla 1 yıl önce veya sonra).';
     }
+    checkDate('date', f.date, d, 'Lütfen kendi nöbetinizin tarihini seçin.');
+    checkDate('date2', f.date2, parseISO(f.date2.value), 'Lütfen karşı tarafın nöbet tarihini seçin.');
     return errs;
   }
 
   function showErrors(errs) {
     clearErrors();
     var first = null;
-    [['name', f.name, f.eName], ['other', f.other, f.eOther], ['date', f.date, f.eDate]].forEach(function (p) {
+    [['name', f.name, f.eName], ['other', f.other, f.eOther], ['date', f.date, f.eDate], ['date2', f.date2, f.eDate2]].forEach(function (p) {
       if (errs[p[0]]) {
         p[1].setAttribute('aria-invalid', 'true');
         p[2].textContent = errs[p[0]];
@@ -479,13 +518,15 @@
     var today = new Date();
     f.date.min = toISO(addDays(today, -365));
     f.date.max = toISO(addDays(today, 365));
+    f.date2.min = f.date.min;
+    f.date2.max = f.date.max;
     if (!f.date.value) f.date.value = toISO(today);
     renderPreview();
     els.sheetRoot.hidden = false;
     document.documentElement.className += ' sheet-open';
     fitSheet();
     setTimeout(function () {
-      var target = !clean(f.name.value) ? f.name : (!clean(f.other.value) ? f.other : f.date);
+      var target = !clean(f.name.value) ? f.name : (!clean(f.other.value) ? f.other : (!f.date2.value ? f.date2 : f.date));
       try { target.focus({ preventScroll: true }); } catch (e) { target.focus(); }
     }, 60);
   }
@@ -509,10 +550,10 @@
     e.preventDefault();
     if (state.sending) return;
     var errs = validate();
-    if (errs.name || errs.other || errs.date) { showErrors(errs); return; }
+    if (errs.name || errs.other || errs.date || errs.date2) { showErrors(errs); return; }
     clearErrors();
 
-    var data = { olusturan: clean(f.name.value), karsi: clean(f.other.value), tarih: f.date.value };
+    var data = { olusturan: clean(f.name.value), karsi: clean(f.other.value), tarih: f.date.value, karsiTarih: f.date2.value };
     setSending(true);
     store.add(data).then(function (rec) {
       saveName(data.olusturan);
@@ -522,6 +563,7 @@
       state.highlight = rec.id;
       f.other.value = '';
       f.date.value = '';
+      f.date2.value = '';
       closeSheet();
       render();
       setStatus(store.mode === 'local' ? 'local' : 'live');
@@ -574,9 +616,9 @@
     });
     f.form.addEventListener('submit', onSubmit);
     ['input', 'change'].forEach(function (ev) {
-      [f.name, f.other, f.date].forEach(function (inp) { inp.addEventListener(ev, renderPreview); });
+      [f.name, f.other, f.date, f.date2].forEach(function (inp) { inp.addEventListener(ev, renderPreview); });
     });
-    [f.name, f.other, f.date].forEach(function (inp) {
+    [f.name, f.other, f.date, f.date2].forEach(function (inp) {
       inp.addEventListener('input', function () {
         if (inp.getAttribute('aria-invalid')) { inp.removeAttribute('aria-invalid'); }
         f.eForm.textContent = '';
