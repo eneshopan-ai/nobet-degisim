@@ -19,7 +19,7 @@ assert.equal(validSub(null), false);
 
 // Depodaki gerçek config.js okunabiliyor.
 const cfg = parseConfig(fs.readFileSync(fileURLToPath(new URL('../config.js', import.meta.url)), 'utf8'));
-assert.match(cfg.databaseUrl, /^https:\/\/.+firebasedatabase\.app$/);
+assert.equal(cfg.databaseUrl, 'https://nobet-degisim-default-rtdb.europe-west1.firebasedatabase.app', 'yorumdaki örnek adres değil, gerçek adres okunmalı');
 assert.equal(cfg.path, 'nobetler');
 assert.match(cfg.vapidPublicKey, /^[A-Za-z0-9_-]{87}$/, 'VAPID genel anahtarı 65 bayt = 87 base64url karakter');
 

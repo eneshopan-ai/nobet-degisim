@@ -19,7 +19,9 @@ export function validSub(s) {
 
 // config.js'ten databaseUrl, path ve vapidPublicKey okur (tek doğruluk kaynağı uygulamanın kendi ayarı).
 export function parseConfig(text) {
-  const pick = (k) => { const m = new RegExp(k + "\\s*:\\s*'([^']*)'").exec(text); return m ? m[1] : ''; };
+  // Dosyanın başındaki yorumda örnek bir databaseUrl var; yorumları atla.
+  const code = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const pick = (k) => { const m = new RegExp(k + "\\s*:\\s*'([^']*)'").exec(code); return m ? m[1] : ''; };
   return { databaseUrl: pick('databaseUrl'), path: pick('path') || 'nobetler', vapidPublicKey: pick('vapidPublicKey') };
 }
 
