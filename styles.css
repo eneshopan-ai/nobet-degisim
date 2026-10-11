@@ -293,6 +293,20 @@ main:focus { outline: none; }
 .swap-del:hover, .swap-del:focus-visible { color: var(--err); background: var(--surface-2); }
 .swap-del:disabled { opacity: 0.5; }
 
+.push {
+  display: flex; align-items: center; gap: 10px; margin: 0 0 16px; padding: 10px 12px 10px 14px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-sm);
+}
+.push-ico { flex: none; color: var(--brand-text); font-size: 1.3rem; display: inline-flex; }
+.push p { flex: 1; min-width: 0; margin: 0; font-size: 0.84rem; line-height: 1.4; }
+.push-btn {
+  flex: none; min-height: 44px; padding: 0 14px; border: 0; border-radius: 14px;
+  font: inherit; font-size: 0.84rem; font-weight: 800; color: #fff; background: var(--grad);
+  -webkit-appearance: none; appearance: none;
+}
+.push[data-state="on"] .push-btn { color: var(--brand-text); background: var(--surface-2); }
+.push-btn:disabled { opacity: 0.6; }
+
 .more { margin-top: 4px; }
 
 /* ---- Boş / hata / yükleniyor ------------------------------------------- */

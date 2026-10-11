@@ -249,6 +249,86 @@
     });
   }
 
+  /* ------------------------------------------------- bildirim (Web Push) */
+
+  // Yeni kayıtta bildirimi GitHub Actions gönderir (.github/workflows/bildirim.yml); burada yalnızca abonelik alınır.
+  var push = { box: $('push-box'), text: $('push-text'), btn: $('push-btn') };
+
+  function pushKey() {
+    var s = cfg.vapidPublicKey.replace(/-/g, '+').replace(/_/g, '/');
+    var raw = window.atob(s + '===='.slice(0, (4 - s.length % 4) % 4));
+    var out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  var PUSH_UI = {
+    off: ['Yeni nöbet değişikliği olunca telefonuna bildirim gelsin.', 'Bildirimleri aç'],
+    on: ['Bildirimler açık: yeni nöbet değişikliklerinde bu cihaza bildirim gelir.', 'Kapat'],
+    denied: ['Bildirim izni engellenmiş. Telefonun veya tarayıcının ayarlarından bu site için izin verin.', ''],
+    ios: ['iPhone\'da bildirim için önce Paylaş düğmesinden “Ana Ekrana Ekle”yi seçin, sonra uygulamayı ana ekrandan açın.', '']
+  };
+
+  function pushShow(kind, busy) {
+    push.box.hidden = false;
+    push.box.setAttribute('data-state', kind);
+    push.text.textContent = PUSH_UI[kind][0];
+    push.btn.hidden = !PUSH_UI[kind][1];
+    push.btn.textContent = PUSH_UI[kind][1];
+    push.btn.disabled = !!busy;
+  }
+
+  function pushEnable() {
+    pushShow('off', true);
+    Notification.requestPermission().then(function (perm) {
+      if (perm !== 'granted') { pushShow(perm === 'denied' ? 'denied' : 'off'); return; }
+      return navigator.serviceWorker.ready.then(function (reg) {
+        return reg.pushManager.getSubscription().then(function (sub) {
+          return sub || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushKey() });
+        });
+      }).then(function (sub) {
+        return store.subscribe(sub.toJSON()).then(function () {
+          pushShow('on');
+          toast('Bildirimler açıldı.');
+        }, function (err) {
+          // Veritabanına yazılamadıysa aboneliği geri al: yoksa "açık" görünür ama bildirim hiç gelmez.
+          var undo = function () { throw err; };
+          return sub.unsubscribe().then(undo, undo);
+        });
+      });
+    }).catch(function (err) {
+      pushShow(Notification.permission === 'denied' ? 'denied' : 'off');
+      toast(err && err.message ? err.message : 'Bildirimler açılamadı.', true);
+    });
+  }
+
+  function pushDisable() {
+    pushShow('on', true);
+    navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager.getSubscription(); })
+      .then(function (sub) { return sub && sub.unsubscribe(); })
+      .then(function () { pushShow('off'); toast('Bildirimler kapatıldı.'); },
+        function () { pushShow('on'); toast('Bildirimler kapatılamadı.', true); });
+  }
+
+  function initPush() {
+    if (!store.canPush) return;   // demo modu ya da vapidPublicKey yok
+    var supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+    if (!supported) {
+      // iPhone'da bildirim yalnızca ana ekrana eklenmiş uygulamada çalışır.
+      var ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      var installed = window.navigator.standalone || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+      if (ios && !installed) pushShow('ios');
+      return;
+    }
+    push.btn.addEventListener('click', function () {
+      if (push.box.getAttribute('data-state') === 'on') pushDisable(); else pushEnable();
+    });
+    if (Notification.permission === 'denied') { pushShow('denied'); return; }
+    navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
+      pushShow(sub && Notification.permission === 'granted' ? 'on' : 'off');
+    }, function () { /* servis çalışanı yok: kutu gizli kalır */ });
+  }
+
   function stateCard(kind) {
     var box = el('div', 'state' + (kind === 'error' ? ' is-error' : ''));
     var art = el('div', 'state-art');
@@ -638,6 +718,7 @@
     refresh();
     startBackgroundSync();
     setInterval(refreshTimes, 30000);
+    initPush();
 
     if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
       window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () { /* çevrimdışı önbellek isteğe bağlı */ }); });

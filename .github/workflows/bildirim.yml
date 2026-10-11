@@ -1,0 +1,47 @@
+name: Nobet Degisim - Bildirim
+
+# Her 5 dakikada yeni kayıt var mı bakar, varsa abonelere Web Push gönderir.
+# GitHub zamanlayıcısı garanti vermez: bildirim 5-15 dakika gecikebilir. Depo 60 gün hareketsiz kalırsa
+# GitHub zamanlanmış işleri durdurur (Actions sekmesinden yeniden etkinleştirilir).
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bildirim
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Son bildirilen kaydın zamanı; en yeni önbellek geri yüklenir.
+      - uses: actions/cache/restore@v4
+        with:
+          path: .cursor
+          key: cursor-yok
+          restore-keys: cursor-
+
+      - run: npm i --no-save --no-package-lock --silent web-push@3.6.7
+
+      - id: send
+        run: node .github/notify.mjs
+        env:
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+
+      - if: always() && steps.send.outputs.changed == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .cursor
+          key: cursor-${{ github.run_id }}

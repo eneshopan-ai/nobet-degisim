@@ -12,5 +12,7 @@ window.NOBET_CONFIG = {
   databaseUrl: 'https://nobet-degisim-default-rtdb.europe-west1.firebasedatabase.app',
   path: 'nobetler',   // veritabanındaki düğüm adı (güvenlik kurallarıyla aynı olmalı)
   limit: 500,         // listede tutulan en yeni kayıt sayısı
-  pollSeconds: 30     // liste kaç saniyede bir yenilensin
+  pollSeconds: 30,    // liste kaç saniyede bir yenilensin
+  // Web Push (VAPID) genel anahtarı. Özel anahtar GitHub secret'ında (VAPID_PRIVATE_KEY). Boşsa bildirim düğmesi görünmez.
+  vapidPublicKey: 'BAF2fAn9EUCD8NF3J71Uk_q64pdQqubbTFKNcn5YYlf3rpyaa-SDbqrJ_CCWoK8CjYuS8bAWwCFcsZGhy_pK62o'
 };

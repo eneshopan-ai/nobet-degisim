@@ -44,11 +44,12 @@ function startStatic() {
 /* ---------------------------------------------------- sahte Firebase RTDB */
 function startMockDb() {
   const store = new Map();          // pushId -> kayıt
-  const ctl = { failPost: false, failDelete: false, posts: 0, deletes: 0 };
+  const ctl = { failPost: false, failDelete: false, denySubs: false, posts: 0, deletes: 0 };
+  const subs = new Map();           // abonelik kimliği -> kayıt
   let counter = 0;
   const pushId = () => '-N' + Date.now().toString(36).padStart(9, '0') + String(counter++).padStart(4, '0');
   const cors = {
-    'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
+    'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'content-type', 'Cache-Control': 'no-cache'
   };
   // database.rules.json ile aynı: dört alan zorunlu, karsiTarih isteğe bağlı (eski kayıtlar), başka alan yok.
@@ -62,6 +63,32 @@ function startMockDb() {
   const server = http.createServer((req, res) => {
     const u = new URL(req.url, 'http://x');
     if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
+    // database.rules.json "abonelikler": herkes okur, yalnızca ilk yazıma izin (var olan 401), adres https olmalı.
+    const sub = /^\/abonelikler\/([^/]+)\.json$/.exec(u.pathname);
+    if (sub) {
+      const id = decodeURIComponent(sub[1]);
+      if (req.method === 'GET') {
+        if (ctl.denySubs) { res.writeHead(401, cors); return res.end('{"error":"Permission denied"}'); }   // kurallar yayınlanmamış: okuma da kapalı
+        res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify(subs.get(id) ?? null));
+      }
+      if (req.method === 'PUT') {
+        let raw = '';
+        req.on('data', (c) => (raw += c));
+        req.on('end', () => {
+          const v = JSON.parse(raw);
+          if (v && v.ts && v.ts['.sv'] === 'timestamp') v.ts = Date.now();
+          const ok = !ctl.denySubs && !subs.has(id) && typeof v.endpoint === 'string' && v.endpoint.startsWith('https://')
+            && v.keys && typeof v.keys.p256dh === 'string' && typeof v.keys.auth === 'string' && typeof v.ts === 'number'
+            && Object.keys(v).sort().join() === 'endpoint,keys,ts';
+          if (!ok) { res.writeHead(401, cors); return res.end('{"error":"Permission denied"}'); }
+          subs.set(id, v);
+          res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(v));
+        });
+        return;
+      }
+    }
     const del = /^\/nobetler\/([^/]+)\.json$/.exec(u.pathname);
     if (del && req.method === 'DELETE') {
       ctl.deletes++;
@@ -102,7 +129,7 @@ function startMockDb() {
     res.writeHead(405, cors); res.end();
   });
   const seed = (rec) => { const id = pushId(); store.set(id, rec); return id; };
-  return new Promise((r) => server.listen(0, '127.0.0.1', () => r({ server, url: `http://127.0.0.1:${server.address().port}`, store, ctl, seed })));
+  return new Promise((r) => server.listen(0, '127.0.0.1', () => r({ server, url: `http://127.0.0.1:${server.address().port}`, store, subs, ctl, seed })));
 }
 
 /* ----------------------------------------------------------- yardımcılar */
@@ -126,17 +153,38 @@ function track(page, errors) {
 
 // Depodaki config.js gerçek veritabanı adresini taşır; testler hermetik kalsın diye her zaman üzerine yazılır.
 // dbUrl yoksa demo modu (databaseUrl: '') zorlanır.
-const forceConfig = (ctx, dbUrl) => ctx.route('**/config.js', (route) => route.fulfill({
+const forceConfig = (ctx, dbUrl, vapid) => ctx.route('**/config.js', (route) => route.fulfill({
   contentType: 'text/javascript',
-  body: `window.NOBET_CONFIG = { databaseUrl: ${JSON.stringify(dbUrl || '')}, path: 'nobetler', limit: 500, pollSeconds: 5 };`
+  body: `window.NOBET_CONFIG = { databaseUrl: ${JSON.stringify(dbUrl || '')}, path: 'nobetler', limit: 500, pollSeconds: 5${vapid ? `, vapidPublicKey: ${JSON.stringify(vapid)}` : ''} };`
 }));
+
+// Gerçek push servisine bağlanmadan Web Push API'sini taklit eder: izin, abonelik, abonelikten çıkma.
+function pushStub({ permission, noPushManager }) {
+  // Gerçek tarayıcıda izin ve abonelik sayfa yenilense de kalır; taklidi de sessionStorage ile kalıcı tutarız.
+  const ss = window.sessionStorage;
+  const st = { perm: ss.getItem('__perm') || permission, sub: null, opts: null };
+  window.__push = st;
+  if (noPushManager) { delete window.PushManager; window.PushManager = undefined; delete window.PushManager; return; }
+  const sub = {
+    endpoint: 'https://fcm.googleapis.com/fcm/send/e2e-test-endpoint',
+    toJSON() { return { endpoint: this.endpoint, keys: { p256dh: 'BPe2eP256dhKey', auth: 'e2eAuthSecret' } }; },
+    unsubscribe: async () => { st.sub = null; ss.removeItem('__sub'); return true; }
+  };
+  if (ss.getItem('__sub')) st.sub = sub;
+  const reg = { pushManager: { getSubscription: async () => st.sub, subscribe: async (o) => { st.opts = o; st.sub = sub; ss.setItem('__sub', '1'); return sub; } } };
+  Object.defineProperty(navigator.serviceWorker, 'ready', { get: () => Promise.resolve(reg) });
+  Object.defineProperty(Notification, 'permission', { get: () => st.perm, configurable: true });
+  Notification.requestPermission = async () => { if (st.perm === 'default') { st.perm = 'granted'; ss.setItem('__perm', 'granted'); } return st.perm; };
+}
 
 async function newPhone(browser, appUrl, dbUrl, opts = {}) {
   const ctx = await browser.newContext({
     viewport: opts.viewport || { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true,
-    colorScheme: opts.colorScheme || 'light', locale: 'tr-TR', serviceWorkers: 'block'
+    colorScheme: opts.colorScheme || 'light', locale: 'tr-TR', serviceWorkers: 'block',
+    ...(opts.userAgent ? { userAgent: opts.userAgent } : {})
   });
-  await forceConfig(ctx, dbUrl);
+  await forceConfig(ctx, dbUrl, opts.vapid);
+  if (opts.pushStub) await ctx.addInitScript(pushStub, opts.pushStub);
   const page = await ctx.newPage();
   const errors = [];
   track(page, errors);
@@ -317,6 +365,85 @@ try {
   assert.equal((await cardTexts(L2.page)).length, 0);
   step('Demo modu uyarıyor; kayıt yalnızca o cihazda kalıyor (ortak liste için veritabanı gerekir)');
   await L1.ctx.close(); await L2.ctx.close();
+
+  console.log('\n[2b] Bildirim aboneliği (Web Push taklit edilir)');
+  const vapid = Buffer.alloc(65, 4).toString('base64url');   // 65 bayt = 87 karakter, gerçek anahtar biçimi
+  const N = await newPhone(browser, APP, db.url, { vapid, pushStub: { permission: 'default' } });
+  allErrors.push(N.errors);
+  await N.page.goto(APP + '/');
+  await N.page.waitForSelector('#push-box:not([hidden])');
+  assert.equal(await N.page.getAttribute('#push-box', 'data-state'), 'off');
+  assert.equal((await N.page.textContent('#push-btn')).trim(), 'Bildirimleri aç');
+  await N.page.screenshot({ path: `${OUT}/05-push-off.png` });
+  await N.page.click('#push-btn');
+  await N.page.waitForFunction(() => document.getElementById('push-box').dataset.state === 'on');
+  assert.equal(db.subs.size, 1);
+  const rec = [...db.subs.values()][0];
+  assert.deepEqual(Object.keys(rec).sort(), ['endpoint', 'keys', 'ts']);
+  assert.equal(rec.endpoint, 'https://fcm.googleapis.com/fcm/send/e2e-test-endpoint');
+  const used = await N.page.evaluate(() => ({ uvo: window.__push.opts.userVisibleOnly, len: window.__push.opts.applicationServerKey.length }));
+  assert.deepEqual(used, { uvo: true, len: 65 });
+  await N.page.screenshot({ path: `${OUT}/06-push-on.png` });
+  step('"Bildirimleri aç": izin istenir, abonelik alınır ve (adres + anahtarlar) veritabanına yazılır');
+
+  await N.page.click('#push-btn');      // kapat
+  await N.page.waitForFunction(() => document.getElementById('push-box').dataset.state === 'off');
+  assert.equal(await N.page.evaluate(() => window.__push.sub), null);
+  await N.page.click('#push-btn');      // yeniden aç: kayıt zaten var (401) ama sorun değil
+  await N.page.waitForFunction(() => document.getElementById('push-box').dataset.state === 'on');
+  assert.equal(db.subs.size, 1, 'aynı cihaz iki kayıt oluşturmamalı');
+  const exists401 = N.errors.findIndex((m) => /status of 401/.test(m));   // kayıt zaten var: kurallar 401 döner, uygulama bunu kabul eder
+  assert.ok(exists401 >= 0, 'var olan aboneliğe yazma 401 vermeliydi');
+  N.errors.splice(exists401, 1);
+  step('Kapatıp yeniden açınca aynı cihaz ikinci kayıt oluşturmuyor');
+
+  await N.page.reload();
+  await N.page.waitForSelector('#push-box:not([hidden])');
+  assert.equal(await N.page.getAttribute('#push-box', 'data-state'), 'on', 'sayfa yenilenince açık durumu korunmalı');
+  step('Sayfa yenilenince "Bildirimler açık" durumu korunuyor');
+  await N.ctx.close();
+
+  const D = await newPhone(browser, APP, db.url, { vapid, pushStub: { permission: 'default' } });
+  allErrors.push(D.errors);
+  db.ctl.denySubs = true;       // kurallar yayınlanmamış gibi
+  await D.page.goto(APP + '/');
+  await D.page.waitForSelector('#push-box:not([hidden])');
+  await D.page.click('#push-btn');
+  await D.page.waitForFunction(() => document.getElementById('toast').classList.contains('is-error'));
+  assert.match(await D.page.textContent('#toast'), /kuralları güncel değil/);
+  assert.equal(await D.page.getAttribute('#push-box', 'data-state'), 'off');
+  assert.equal(await D.page.evaluate(() => window.__push.sub), null, 'kayıt yazılamadıysa abonelik geri alınmalı');
+  db.ctl.denySubs = false;
+  for (let i = D.errors.findIndex((m) => /status of 401/.test(m)); i >= 0; i = D.errors.findIndex((m) => /status of 401/.test(m))) D.errors.splice(i, 1);   // bilerek verdirdiğimiz 401'ler konsola düşer
+  step('Veritabanı kaydı reddederse hata gösterilir, abonelik geri alınır, "açık" görünmez');
+  await D.ctx.close();
+
+  const X = await newPhone(browser, APP, db.url, { vapid, pushStub: { permission: 'denied' } });
+  allErrors.push(X.errors);
+  await X.page.goto(APP + '/');
+  await X.page.waitForSelector('#push-box:not([hidden])');
+  assert.equal(await X.page.getAttribute('#push-box', 'data-state'), 'denied');
+  assert.equal(await X.page.isHidden('#push-btn'), true);
+  await X.ctx.close();
+
+  const IOS = await newPhone(browser, APP, db.url, {
+    vapid, pushStub: { noPushManager: true },
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+  });
+  allErrors.push(IOS.errors);
+  await IOS.page.goto(APP + '/');
+  await IOS.page.waitForSelector('#push-box:not([hidden])');
+  assert.equal(await IOS.page.getAttribute('#push-box', 'data-state'), 'ios');
+  assert.match(await IOS.page.textContent('#push-text'), /Ana Ekrana Ekle/);
+  await IOS.ctx.close();
+
+  const DM = await newPhone(browser, APP, null, { vapid, pushStub: { permission: 'default' } });
+  allErrors.push(DM.errors);
+  await DM.page.goto(APP + '/');
+  await DM.page.waitForFunction(() => document.getElementById('sync').dataset.state === 'local');
+  assert.equal(await DM.page.isHidden('#push-box'), true, 'demo modunda bildirim kutusu görünmemeli');
+  await DM.ctx.close();
+  step('İzin engelliyse yönerge, iPhone\'da (ana ekrana eklenmemiş) "Ana Ekrana Ekle" yönergesi var; demo modunda kutu gizli');
 
   console.log('\n[3] Cihaz boyutları, koyu mod, ekran görüntüleri');
   // Sahte veritabanını farklı günlere yayılmış örnek kayıtlarla doldur.

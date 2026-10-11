@@ -42,6 +42,18 @@ Kayıtları listedeki çöp kutusu düğmesiyle linke giren herkes silebilir; gi
 
 > Özel (private) depolarda GitHub Pages için ücretli plan gerekir.
 
+## Telefon bildirimi (Web Push)
+
+Ana sayfadaki **Bildirimleri aç** düğmesi cihazı abone yapar; biri yeni nöbet değişikliği bildirince abonelerin telefonuna bildirim gider (silmede gitmez).
+
+- **Nasıl çalışır:** [`bildirim.yml`](.github/workflows/bildirim.yml) her 5 dakikada yeni kayıt var mı bakar, varsa abonelere Web Push gönderir. Sunucu, kart ya da ücretli plan gerekmez.
+- **Gecikme:** GitHub zamanlayıcısı garanti vermez; bildirim yaklaşık 5–15 dakikada gelir. Depo 60 gün hareketsiz kalırsa GitHub zamanlanmış işleri durdurur (Actions sekmesinden yeniden etkinleştirin).
+- **Android / bilgisayar:** siteyi açıp "Bildirimleri aç"a basmak yeter.
+- **iPhone:** önce Safari'de Paylaş → **Ana Ekrana Ekle**, sonra uygulamayı ana ekrandan açıp düğmeye basın (iOS 16.4+).
+- **Kurulum (bir kez):** `config.js` içindeki `vapidPublicKey` ve GitHub'daki `VAPID_PRIVATE_KEY` secret'ı bir çifttir. Çifti yenilerseniz herkesin bildirimi yeniden açması gerekir. `database.rules.json` içindeki `abonelikler` kuralı da Firebase'de yayınlı olmalı.
+- **Aboneler:** `abonelikler` düğümünde adres + anahtar tutulur, herkes okuyabilir ama gönderim özel anahtar olmadan yapılamaz. Göndericinin SSRF'e karşı yalnızca bilinen push servislerine (FCM, Mozilla, Apple, Windows) gönderim yapması test edilir.
+- Kayıt ekleyen kişinin kendi telefonuna da bildirim gider.
+
 ## Gizlilik ve güvenlik notları
 
 - Giriş / parola **yoktur**: linki bilen herkes görür ve ekler. Bu bilinçli bir sadelik tercihidir. Linki yalnızca bölümle paylaşın; sayfa arama motorlarına kapalıdır (`noindex`).
@@ -54,6 +66,7 @@ Kayıtları listedeki çöp kutusu düğmesiyle linke giren herkes silebilir; gi
 ```bash
 npx serve .                      # veya: python3 -m http.server
 node test/e2e.mjs                # Playwright + Chromium gerekir
+node test/notify.test.mjs        # bildirim mantığı, bağımlılık yok
 ```
 
 Test, Firebase REST sözleşmesini taklit eden yerel bir sahte sunucu kullanır ve şunları doğrular: iki ayrı telefonun aynı listeyi görmesi, kayıtların sayfa yenilense de kalması, sıralama, doğrulamalar, XSS, 8 cihaz boyutunda taşma olmaması, çevrimdışı açılış. **Gerçek Firebase'e bağlanmaz** ve `database.rules.json` kurallarını çalıştırmaz; kuralları Firebase konsolundaki *Rules Playground* ile deneyin.
@@ -66,5 +79,6 @@ Test, Firebase REST sözleşmesini taklit eden yerel bir sahte sunucu kullanır 
 | `storage.js` | Veri katmanı: `cloud` (Firebase REST) ve `local` (demo) |
 | `config.js` | `databaseUrl` ve ayarlar |
 | `database.rules.json` | Firebase güvenlik kuralları |
-| `sw.js`, `manifest.webmanifest`, `icons/` | Çevrimdışı açılış, ana ekrana ekleme |
-| `test/e2e.mjs` | Uçtan uca test |
+| `sw.js`, `manifest.webmanifest`, `icons/` | Çevrimdışı açılış, ana ekrana ekleme, bildirimi gösterme |
+| `.github/notify.mjs`, `.github/notify-lib.mjs`, `.github/workflows/bildirim.yml` | Yeni kayıtta Web Push gönderen zamanlanmış iş |
+| `test/e2e.mjs`, `test/notify.test.mjs` | Uçtan uca test, bildirim mantığı testi |

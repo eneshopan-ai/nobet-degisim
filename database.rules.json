@@ -14,6 +14,21 @@
         "ts": { ".validate": "newData.isNumber() && newData.val() == now" },
         "$other": { ".validate": false }
       }
+    },
+    "abonelikler": {
+      ".read": true,
+      "$id": {
+        ".write": "!data.exists() && newData.exists()",
+        ".validate": "newData.hasChildren(['endpoint', 'keys', 'ts'])",
+        "endpoint": { ".validate": "newData.isString() && newData.val().length <= 600 && newData.val().beginsWith('https://')" },
+        "keys": {
+          "p256dh": { ".validate": "newData.isString() && newData.val().length <= 200" },
+          "auth": { ".validate": "newData.isString() && newData.val().length <= 100" },
+          "$other": { ".validate": false }
+        },
+        "ts": { ".validate": "newData.isNumber() && newData.val() == now" },
+        "$other": { ".validate": false }
+      }
     }
   }
 }

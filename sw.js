@@ -20,6 +20,33 @@ self.addEventListener('activate', function (e) {
   );
 });
 
+// Web Push: bildirim metnini GitHub Actions gönderir (.github/notify.mjs); biz yalnızca gösteririz.
+self.addEventListener('push', function (e) {
+  var d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (err) { /* metin değilse varsayılan */ }
+  e.waitUntil(self.registration.showNotification(d.title || 'Yeni nöbet değişikliği', {
+    body: d.body || 'Yeni bir nöbet değişikliği bildirildi.',
+    icon: 'icons/icon-192.png',
+    badge: 'icons/favicon-32.png',
+    tag: d.tag,
+    lang: 'tr',
+    data: { url: d.url || './#/degisiklikler' }
+  }));
+});
+
+self.addEventListener('notificationclick', function (e) {
+  e.notification.close();
+  var url = new URL((e.notification.data && e.notification.data.url) || './#/degisiklikler', self.registration.scope).href;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].url.indexOf(self.registration.scope) === 0 && 'focus' in list[i]) {
+        return list[i].focus().then(function (c) { return c.navigate ? c.navigate(url) : c; });
+      }
+    }
+    return self.clients.openWindow(url);
+  }));
+});
+
 self.addEventListener('fetch', function (e) {
   var req = e.request;
   if (req.method !== 'GET') return;

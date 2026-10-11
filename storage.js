@@ -5,6 +5,7 @@
  *   list() -> Promise<Kayıt[]>   en yeniden eskiye sıralı
  *   add({olusturan, karsi, tarih, karsiTarih}) -> Promise<Kayıt>
  *   remove(id) -> Promise<void>   linke giren herkes silebilir (kurallar da buna izin verir)
+ *   canPush / subscribe(abonelik) -> Promise<void>   Web Push aboneliğini veritabanına yazar (yalnızca cloud)
  *
  *   cloud : Firebase Realtime Database REST API (herkes ortak listeyi görür)
  *   local : localStorage (demo; kayıtlar yalnızca bu cihazda)
@@ -45,6 +46,15 @@
     return { id: String(id), olusturan: a.slice(0, NAME_MAX), karsi: b.slice(0, NAME_MAX), tarih: t, karsiTarih: t2, ts: ts };
   }
 
+  // Abonelik kimliği: adresin SHA-256 özeti (aynı cihaz iki kez kaydolsa aynı yere yazılır).
+  function subId(endpoint) {
+    return global.crypto.subtle.digest('SHA-256', new TextEncoder().encode(endpoint)).then(function (buf) {
+      var bytes = new Uint8Array(buf).slice(0, 16), s = '';
+      for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+      return global.btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    });
+  }
+
   function fail(message, cause) {
     var e = new Error(message);
     e.cause = cause;
@@ -76,6 +86,7 @@
 
     return {
       mode: 'local',
+      canPush: false,
       list: function () {
         var out = [];
         read().forEach(function (v) {
@@ -141,6 +152,7 @@
 
     return {
       mode: 'cloud',
+      canPush: !!cfg.vapidPublicKey,
       list: function () {
         var url = endpoint + '?orderBy=%22%24key%22&limitToLast=' + limit;
         return request(url, { method: 'GET', cache: 'no-store' }).then(function (res) {
@@ -187,6 +199,21 @@
             karsiTarih: body.karsiTarih,
             ts: Date.now() // bir sonraki yenilemede sunucu saati ile değişir
           };
+        });
+      },
+      subscribe: function (sub) {
+        var url;
+        return subId(sub.endpoint).then(function (id) {
+          url = base + '/abonelikler/' + id + '.json';
+          var body = { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, ts: { '.sv': 'timestamp' } };
+          return request(url, { method: 'PUT', body: JSON.stringify(body) });
+        }).then(function (res) {
+          if (res.ok) return;
+          if (res.status !== 401 && res.status !== 403) throw fail('Bildirim kaydı yapılamadı (HTTP ' + res.status + ').');
+          // Kurallar yalnızca ilk yazıma izin verir: kayıt zaten varsa sorun yok, yoksa kurallar yayınlanmamıştır.
+          return request(url, { method: 'GET', cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (v) {
+            if (!v) throw fail('Bildirim kaydı reddedildi. Veritabanı kuralları güncel değil.');
+          });
         });
       },
       remove: function (id) {
