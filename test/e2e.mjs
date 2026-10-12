@@ -232,6 +232,8 @@ try {
   const A = await newPhone(browser, APP, db.url);
   const B = await newPhone(browser, APP, db.url);
   allErrors.push(A.errors, B.errors);
+  // Eski sürümün telefona kaydettiği ad (ör. test adı) formu kendiliğinden doldurmamalı.
+  await A.ctx.addInitScript(() => { try { localStorage.setItem('nobet.v1.ad', 'Eski Ad'); } catch (e) { /* önemsiz */ } });
 
   await A.page.goto(APP + '/');
   await A.page.waitForFunction(() => document.getElementById('sync').dataset.state === 'live');
@@ -242,6 +244,8 @@ try {
 
   await A.page.click('#cta');
   await A.page.waitForSelector('#sheet-root:not([hidden])');
+  assert.equal(await A.page.inputValue('#f-name'), '', 'ad alanı kendiliğinden dolmamalı');
+  assert.equal(await A.page.evaluate(() => localStorage.getItem('nobet.v1.ad')), null, 'eski kayıtlı ad silinmeli');
   await A.page.click('#btn-submit');
   assert.ok((await A.page.textContent('#e-name')).length > 0 && (await A.page.textContent('#e-other')).length > 0);
   await A.page.fill('#f-name', 'Ayşe Yılmaz');
@@ -266,6 +270,11 @@ try {
   assert.match(A.page.url(), /#\/degisiklikler$/);
   assert.deepEqual(await cardTexts(A.page), [sentence('Ayşe Yılmaz', 'Mehmet Demir', d1, e1)]);
   assert.equal(JSON.stringify(Object.keys([...db.store.values()][0]).sort()), JSON.stringify(['karsi', 'karsiTarih', 'olusturan', 'tarih', 'ts']));
+  await A.page.locator('#btn-add:visible').click();
+  await A.page.waitForSelector('#sheet-root:not([hidden])');
+  assert.equal(await A.page.inputValue('#f-name'), '', 'gönderdikten sonra ad hatırlanmamalı');
+  await A.page.keyboard.press('Escape');
+  await A.page.waitForSelector('#sheet-root', { state: 'hidden' });
   step('Önizleme istenen cümleyi (iki tarihli) üretiyor; gönderince "Nöbet Değişiklikleri" sekmesinde aynı cümle görünüyor');
   await A.page.screenshot({ path: `${OUT}/03-list-one.png` });
 

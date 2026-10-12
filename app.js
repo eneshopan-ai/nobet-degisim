@@ -530,8 +530,8 @@
 
   var lastFocus = null;
 
-  function loadName() { try { return window.localStorage.getItem(NAME_KEY) || ''; } catch (e) { return ''; } }
-  function saveName(v) { try { window.localStorage.setItem(NAME_KEY, v); } catch (e) { /* önemsiz */ } }
+  // Ad artık hatırlanmıyor: eski sürümün telefona yazdığı ad bir kez silinir.
+  try { window.localStorage.removeItem(NAME_KEY); } catch (e) { /* önemsiz */ }
 
   function renderPreview() {
     fillMessage(f.preview, clean(f.name.value), clean(f.other.value), parseISO(f.date.value), parseISO(f.date2.value));
@@ -594,7 +594,6 @@
     if (!els.sheetRoot.hidden) return;
     lastFocus = trigger || document.activeElement;
     clearErrors();
-    if (!clean(f.name.value)) f.name.value = loadName();
     var today = new Date();
     f.date.min = toISO(addDays(today, -365));
     f.date.max = toISO(addDays(today, 365));
@@ -636,11 +635,11 @@
     var data = { olusturan: clean(f.name.value), karsi: clean(f.other.value), tarih: f.date.value, karsiTarih: f.date2.value };
     setSending(true);
     store.add(data).then(function (rec) {
-      saveName(data.olusturan);
       state.records = [rec].concat(state.records.filter(function (r) { return r.id !== rec.id; }))
         .sort(function (a, b) { return b.ts - a.ts; });
       state.status = 'ready';
       state.highlight = rec.id;
+      f.name.value = '';
       f.other.value = '';
       f.date.value = '';
       f.date2.value = '';
